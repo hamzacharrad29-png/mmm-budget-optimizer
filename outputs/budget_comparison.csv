@@ -1,0 +1,6 @@
+channel,change_scratch_pct,change_meridian_pct,dir_scratch,dir_meridian,agree
+Channel0,-49.99999999999992,41.72839506172839,down,up,False
+Channel1,38.7828186433431,-14.696485623003197,up,down,False
+Channel2,49.99999999999996,35.53719008264462,up,up,True
+Channel3,29.51231895955342,-36.74630261660978,up,down,False
+Channel4,-50.0,32.9140461215933,down,up,False
