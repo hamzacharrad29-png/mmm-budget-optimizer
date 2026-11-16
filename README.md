@@ -96,6 +96,8 @@ streamlit run app.py
 ```
 Your browser opens at http://localhost:8501 (stop the app with `Ctrl+C`).
 
+![Streamlit budget simulator](docs/app_screenshot.png)
+
 In the app:
 - **Total weekly budget (% of current)**: scale the total budget between 60% and 140% of current spend.
 - **Max change per channel (+/- %)**: how far each channel may move away from its current spend.
