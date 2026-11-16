@@ -1,7 +1,7 @@
-"""Compare the from-scratch MMM with Google Meridian.
+"""Compare the from-scratch MMM (national and regional) with Google Meridian.
 
-Needs outputs/roi_scratch.csv (from train.py) and outputs/roi_meridian.csv (from run_meridian.py).
-If outputs/budget_scratch.csv and outputs/budget_meridian.csv exist, budget directions are compared too.
+Needs outputs/national/, outputs/regional/ (from train.py) and outputs/meridian/ (from run_meridian.py).
+Writes outputs/comparison/.
 
 Run:  python compare.py
 """
@@ -12,70 +12,70 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mmm_core import save_figure
+from mmm_core import LEVELS, save_figure
 
 OUT = Path(__file__).resolve().parent / "outputs"
-for f in ("roi_scratch.csv", "roi_meridian.csv"):
-    if not (OUT / f).exists():
-        sys.exit(f"Missing outputs/{f}. Run train.py and run_meridian.py first.")
+CMP = OUT / "comparison"
+needed = [OUT / lvl / "roi.csv" for lvl in LEVELS] + [OUT / "meridian" / "roi.csv"]
+missing = [str(p.relative_to(OUT.parent)) for p in needed if not p.exists()]
+if missing:
+    sys.exit(f"Missing {', '.join(missing)}. Run train.py and run_meridian.py first.")
+CMP.mkdir(exist_ok=True)
 
-mine = pd.read_csv(OUT / "roi_scratch.csv")
-mer = pd.read_csv(OUT / "roi_meridian.csv")
+mer = pd.read_csv(OUT / "meridian" / "roi.csv")
+comp = mer[["channel", "roi_meridian", "roi_low_90", "roi_high_90"]].copy()
+for lvl in LEVELS:
+    comp[f"roi_{lvl}"] = pd.read_csv(OUT / lvl / "roi.csv")["roi"].to_numpy()
+comp.to_csv(CMP / "roi_comparison.csv", index=False)
 
-comp = (
-    mine[["channel", "roi", "incremental_revenue"]]
-    .rename(columns={"roi": "roi_scratch", "incremental_revenue": "inc_scratch"})
-    .merge(mer[["channel", "roi_meridian", "roi_low_90", "roi_high_90", "incremental_revenue"]]
-           .rename(columns={"incremental_revenue": "inc_meridian"}), on="channel")
-)
+mer_budget = pd.read_csv(OUT / "meridian" / "budget.csv")
 
-# 1. Does the from-scratch ROI fall inside Meridian's 90% credible interval?
-comp["inside_interval"] = comp.roi_scratch.between(comp.roi_low_90, comp.roi_high_90)
 
-# 2. Channel ranking (1 = best ROI); correlation of ranks = Spearman correlation
-comp["rank_scratch"] = comp.roi_scratch.rank(ascending=False, method="min").astype(int)
-comp["rank_meridian"] = comp.roi_meridian.rank(ascending=False, method="min").astype(int)
-rank_corr = comp.rank_scratch.corr(comp.rank_meridian)
+def direction(pct):
+    return np.where(pct > 1, 1, np.where(pct < -1, -1, 0))
 
-# 3. Share of media-driven revenue
-comp["share_scratch"] = comp.inc_scratch / comp.inc_scratch.sum()
-comp["share_meridian"] = comp.inc_meridian / comp.inc_meridian.sum()
 
-print(comp.round(3).to_string(index=False))
-print(f"\nRank correlation: {rank_corr:.2f}  (1 = same ranking, 0 = unrelated)")
-print(f"Channels inside Meridian's 90% interval: {comp.inside_interval.sum()}/{len(comp)}")
-comp.to_csv(OUT / "model_comparison.csv", index=False)
+rows = []
+for lvl in LEVELS:
+    roi = comp[f"roi_{lvl}"]
+    budget = pd.read_csv(OUT / lvl / "budget.csv")
+    rows.append({
+        "model": f"from-scratch {lvl}",
+        # Spearman rank correlation with Meridian's posterior mean ROI
+        "rank_correlation": round(roi.rank().corr(comp.roi_meridian.rank()), 2),
+        "roi_inside_meridian_90pct": int(roi.between(comp.roi_low_90, comp.roi_high_90).sum()),
+        "same_budget_direction": int((direction(budget.change_pct) ==
+                                      direction(mer_budget.change_pct)).sum()),
+        "best_channel": comp.channel[roi.idxmax()],
+    })
+summary = pd.DataFrame(rows)
+summary.to_csv(CMP / "summary.csv", index=False)
 
-# 4. Budget recommendation: same direction (increase / decrease)?
-if (OUT / "budget_scratch.csv").exists() and (OUT / "budget_meridian.csv").exists():
-    b = (pd.read_csv(OUT / "budget_scratch.csv")[["channel", "change_pct"]]
-         .rename(columns={"change_pct": "change_scratch_pct"})
-         .merge(pd.read_csv(OUT / "budget_meridian.csv")[["channel", "change_pct"]]
-                .rename(columns={"change_pct": "change_meridian_pct"}), on="channel"))
+budget_cmp = mer_budget[["channel"]].assign(
+    **{f"change_{lvl}_pct": pd.read_csv(OUT / lvl / "budget.csv").change_pct for lvl in LEVELS},
+    change_meridian_pct=mer_budget.change_pct)
+budget_cmp.to_csv(CMP / "budget_comparison.csv", index=False)
 
-    def direction(v):
-        return "up" if v > 1 else ("down" if v < -1 else "flat")
+print("ROI by channel:")
+print(comp.round(2).to_string(index=False))
+print(f"\nAgreement with Meridian (out of {len(comp)} channels; Meridian's best: "
+      f"{comp.channel[comp.roi_meridian.idxmax()]}):")
+print(summary.to_string(index=False))
+print("\nBudget recommendation (% change in spend, same total budget, +/-50% per channel):")
+print(budget_cmp.round(1).to_string(index=False))
 
-    b["dir_scratch"] = b.change_scratch_pct.map(direction)
-    b["dir_meridian"] = b.change_meridian_pct.map(direction)
-    b["agree"] = b.dir_scratch == b.dir_meridian
-    print("\nBudget recommendation (% change in spend, same total budget):")
-    print(b.round(1).to_string(index=False))
-    print(f"Same direction on {b.agree.sum()}/{len(b)} channels")
-    b.to_csv(OUT / "budget_comparison.csv", index=False)
-
-# Chart: ROI side by side, with Meridian's 90% credible interval
+# Chart: ROI by channel for the three models, with Meridian's 90% credible interval
 x = np.arange(len(comp))
-w = 0.38
-err_low = (comp.roi_meridian - comp.roi_low_90).clip(lower=0)
-err_high = (comp.roi_high_90 - comp.roi_meridian).clip(lower=0)
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.bar(x - w / 2, comp.roi_scratch, w, label="From-scratch model")
-ax.bar(x + w / 2, comp.roi_meridian, w, label="Meridian (posterior mean)",
-       yerr=[err_low, err_high], capsize=4)
+w = 0.27
+fig, ax = plt.subplots(figsize=(11, 5))
+ax.bar(x - w, comp.roi_national, w, label="From-scratch, national", color="#9db4d6")
+ax.bar(x, comp.roi_regional, w, label="From-scratch, regional", color="#2f6db5")
+ax.bar(x + w, comp.roi_meridian, w, label="Meridian (posterior mean)", color="#f28e2b",
+       yerr=[(comp.roi_meridian - comp.roi_low_90).clip(lower=0),
+             (comp.roi_high_90 - comp.roi_meridian).clip(lower=0)], capsize=4)
 ax.set_xticks(x, comp.channel)
 ax.set_ylabel("ROI")
 ax.axhline(1, ls="--", lw=0.8, color="gray")
-ax.set_title("ROI by channel: from-scratch vs Meridian (error bars = 90% credible interval)")
-ax.legend()
-save_figure(OUT / "06_model_comparison.png", fig)
+ax.set_title("ROI by channel (Meridian error bars = 90% credible interval)")
+ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=3, frameon=False)
+save_figure(CMP / "roi_comparison.png", fig)

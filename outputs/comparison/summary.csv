@@ -1,0 +1,3 @@
+model,rank_correlation,roi_inside_meridian_90pct,same_budget_direction,best_channel
+from-scratch national,0.5,2,3,Channel0
+from-scratch regional,0.6,4,4,Channel2

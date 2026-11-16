@@ -14,9 +14,19 @@ from mmm_core import optimize_budget, weekly_response
 
 st.set_page_config(page_title="MMM Budget Optimizer", layout="wide")
 
-PARAMS = Path(__file__).resolve().parent / "outputs" / "model_params.json"
+OUTPUTS = Path(__file__).resolve().parent / "outputs"
+
+with st.sidebar:
+    st.header("Scenario")
+    level = st.radio("Model", ["Regional (40 regions)", "National"], index=0,
+                     help="Same model, fitted on regional data or on national totals.")
+    level = "regional" if level.startswith("Regional") else "national"
+    budget_pct = st.slider("Total weekly budget (% of current)", 60, 140, 100, 5)
+    band = st.slider("Max change per channel (+/- %)", 10, 80, 50, 5)
+
+PARAMS = OUTPUTS / level / "model_params.json"
 if not PARAMS.exists():
-    st.error("Model parameters not found. Run `python train.py` first to create outputs/model_params.json.")
+    st.error(f"Model parameters not found. Run `python train.py` first to create outputs/{level}/model_params.json.")
     st.stop()
 params = json.loads(PARAMS.read_text())
 channels = list(params)
@@ -28,13 +38,8 @@ def response(spends):
 
 
 st.title("Marketing Mix Modeling: Budget Allocation Simulator")
-st.caption("Geometric adstock + Hill saturation model fitted on Google Meridian's simulated dataset. "
-           "Revenue figures are steady-state weekly media-driven revenue.")
-
-with st.sidebar:
-    st.header("Scenario")
-    budget_pct = st.slider("Total weekly budget (% of current)", 60, 140, 100, 5)
-    band = st.slider("Max change per channel (+/- %)", 10, 80, 50, 5)
+st.caption(f"Geometric adstock + Hill saturation model ({level} level) fitted on Google Meridian's "
+           "simulated dataset. Revenue figures are steady-state weekly media-driven revenue.")
 
 lo, hi = 1 - band / 100, 1 + band / 100
 if not lo <= budget_pct / 100 <= hi:

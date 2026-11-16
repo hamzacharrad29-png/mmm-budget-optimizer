@@ -23,8 +23,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 QUICK = os.environ.get("MERIDIAN_QUICK") == "1"
 ROOT = Path(__file__).resolve().parent
-OUT, REP = ROOT / "outputs", ROOT / "reports"
-OUT.mkdir(exist_ok=True)
+OUT, REP = ROOT / "outputs" / "meridian", ROOT / "reports"
+OUT.mkdir(parents=True, exist_ok=True)
 REP.mkdir(exist_ok=True)
 
 # %% 1. Data: geo-level, impressions + spend (more detail than the national model)
@@ -65,7 +65,7 @@ else:
     mmm_mer.sample_posterior(n_chains=4, n_adapt=500, n_burnin=500, n_keep=500, seed=0)
 print("Meridian fitted.")
 
-# %% 4. ROI with 90% credible interval -> outputs/roi_meridian.csv
+# %% 4. ROI with 90% credible interval -> outputs/meridian/roi.csv
 roi_draws = np.asarray(analyzer.Analyzer(mmm_mer).roi())  # (chains, draws, channels)
 flat = roi_draws.reshape(-1, roi_draws.shape[-1])
 mer = pd.DataFrame({
@@ -76,7 +76,7 @@ mer = pd.DataFrame({
     "spend": [df_geo[f"{c}_spend"].sum() for c in CHANNELS],
 })
 mer["incremental_revenue"] = mer.roi_meridian * mer.spend  # ROI x spend, by definition
-mer.to_csv(OUT / "roi_meridian.csv", index=False)
+mer.to_csv(OUT / "roi.csv", index=False)
 print(mer.round(3).to_string(index=False))
 
 # %% 5. Budget optimization (same total budget, each channel within +/-50%, like train.py)
@@ -86,7 +86,7 @@ cur = np.asarray(opt.nonoptimized_data[constants.SPEND].sel(channel=CHANNELS).va
 new = np.asarray(opt.optimized_data[constants.SPEND].sel(channel=CHANNELS).values, float)
 budget = pd.DataFrame({"channel": CHANNELS, "current_spend": cur, "optimized_spend": new})
 budget["change_pct"] = (budget.optimized_spend / budget.current_spend - 1) * 100
-budget.to_csv(OUT / "budget_meridian.csv", index=False)
+budget.to_csv(OUT / "budget.csv", index=False)
 print(budget.round(1).to_string(index=False))
 
 # %% 6. HTML reports -> reports/
@@ -102,4 +102,4 @@ try:  # model health card (available in recent Meridian versions)
 except Exception as e:  # noqa: BLE001 - the health card is optional
     print("Health card skipped:", type(e).__name__, e)
 
-print("Saved outputs/roi_meridian.csv, outputs/budget_meridian.csv and reports/*.html")
+print("Saved outputs/meridian/roi.csv, outputs/meridian/budget.csv and reports/*.html")
